@@ -55,7 +55,7 @@ public class LabelBasedAccessMode implements AccessMode {
 
     @Override
     public PermissionState allowsTokenCreates(PrivilegeAction action) {
-        return defaultDeny ? PermissionState.DENIED : PermissionState.ALLOWED;
+        return defaultDeny ? PermissionState.EXPLICIT_DENY : PermissionState.EXPLICIT_GRANT;
     }
 
     @Override
@@ -65,7 +65,7 @@ public class LabelBasedAccessMode implements AccessMode {
 
     @Override
     public PermissionState allowsSchemaWrites(PrivilegeAction action) {
-        return PermissionState.DENIED;
+        return PermissionState.EXPLICIT_DENY;
     }
 
     @Override
@@ -140,8 +140,9 @@ public class LabelBasedAccessMode implements AccessMode {
 
     @Override
     public boolean allowsReadPropertyAllLabels(int propertyKey) {
-        return !defaultDeny && labelPermissions.values().stream()
-                .anyMatch(actions -> actions.contains("READ") || actions.contains("ALL"));
+        return !defaultDeny
+                && labelPermissions.values().stream()
+                        .anyMatch(actions -> actions.contains("READ") || actions.contains("ALL"));
     }
 
     @Override
@@ -214,85 +215,101 @@ public class LabelBasedAccessMode implements AccessMode {
 
     @Override
     public PermissionState allowsExecuteProcedure(int procedureId) {
-        return defaultDeny ? PermissionState.DENIED : PermissionState.ALLOWED;
+        return defaultDeny ? PermissionState.EXPLICIT_DENY : PermissionState.EXPLICIT_GRANT;
     }
 
     @Override
     public PermissionState allowExecuteAdminProcedures() {
-        return PermissionState.DENIED;
+        return PermissionState.EXPLICIT_DENY;
     }
 
     @Override
     public PermissionState shouldBoostProcedure(int procedureId) {
-        return PermissionState.DENIED;
+        return PermissionState.EXPLICIT_DENY;
     }
 
     @Override
     public PermissionState allowsExecuteFunction(int id) {
-        return PermissionState.ALLOWED;
+        return PermissionState.EXPLICIT_GRANT;
     }
 
     @Override
     public PermissionState shouldBoostFunction(int id) {
-        return PermissionState.DENIED;
+        return PermissionState.EXPLICIT_DENY;
     }
 
     @Override
     public PermissionState allowsExecuteAggregatingFunction(int id) {
-        return PermissionState.ALLOWED;
+        return PermissionState.EXPLICIT_GRANT;
     }
 
     @Override
     public PermissionState shouldBoostAggregatingFunction(int id) {
-        return PermissionState.DENIED;
+        return PermissionState.EXPLICIT_DENY;
     }
 
     @Override
     public PermissionState allowsShowSetting(String setting) {
-        return PermissionState.ALLOWED;
+        return PermissionState.EXPLICIT_GRANT;
     }
 
     @Override
     public boolean allowsSetLabel(int labelId) {
         // Would need label ID to name mapping
-        return !defaultDeny && labelPermissions.values().stream()
-                .anyMatch(actions -> actions.contains("SET_LABEL") || actions.contains("WRITE") || actions.contains("ALL"));
+        return !defaultDeny
+                && labelPermissions.values().stream()
+                        .anyMatch(actions ->
+                                actions.contains("SET_LABEL") || actions.contains("WRITE") || actions.contains("ALL"));
     }
 
     @Override
     public boolean allowsRemoveLabel(int labelId) {
-        return !defaultDeny && labelPermissions.values().stream()
-                .anyMatch(actions -> actions.contains("REMOVE_LABEL") || actions.contains("WRITE") || actions.contains("ALL"));
+        return !defaultDeny
+                && labelPermissions.values().stream()
+                        .anyMatch(actions -> actions.contains("REMOVE_LABEL")
+                                || actions.contains("WRITE")
+                                || actions.contains("ALL"));
     }
 
     @Override
     public boolean allowsCreateNode(int[] labelIds) {
-        return !defaultDeny && labelPermissions.values().stream()
-                .anyMatch(actions -> actions.contains("CREATE") || actions.contains("WRITE") || actions.contains("ALL"));
+        return !defaultDeny
+                && labelPermissions.values().stream()
+                        .anyMatch(actions ->
+                                actions.contains("CREATE") || actions.contains("WRITE") || actions.contains("ALL"));
     }
 
     @Override
     public boolean allowsDeleteNode(Supplier<TokenSet> labelSupplier) {
-        return !defaultDeny && labelPermissions.values().stream()
-                .anyMatch(actions -> actions.contains("DELETE") || actions.contains("WRITE") || actions.contains("ALL"));
+        return !defaultDeny
+                && labelPermissions.values().stream()
+                        .anyMatch(actions ->
+                                actions.contains("DELETE") || actions.contains("WRITE") || actions.contains("ALL"));
     }
 
     @Override
     public boolean allowsCreateRelationship(int relType) {
-        return !defaultDeny && labelPermissions.values().stream()
-                .anyMatch(actions -> actions.contains("CREATE") || actions.contains("WRITE") || actions.contains("ALL"));
+        return !defaultDeny
+                && labelPermissions.values().stream()
+                        .anyMatch(actions ->
+                                actions.contains("CREATE") || actions.contains("WRITE") || actions.contains("ALL"));
     }
 
     @Override
     public boolean allowsDeleteRelationship(int relType) {
-        return !defaultDeny && labelPermissions.values().stream()
-                .anyMatch(actions -> actions.contains("DELETE") || actions.contains("WRITE") || actions.contains("ALL"));
+        return !defaultDeny
+                && labelPermissions.values().stream()
+                        .anyMatch(actions ->
+                                actions.contains("DELETE") || actions.contains("WRITE") || actions.contains("ALL"));
     }
 
     @Override
     public boolean allowsSetProperty(Supplier<TokenSet> labels, int propertyKey) {
-        return !defaultDeny && labelPermissions.values().stream()
-                .anyMatch(actions -> actions.contains("SET_PROPERTY") || actions.contains("WRITE") || actions.contains("ALL"));
+        return !defaultDeny
+                && labelPermissions.values().stream()
+                        .anyMatch(actions -> actions.contains("SET_PROPERTY")
+                                || actions.contains("WRITE")
+                                || actions.contains("ALL"));
     }
 
     @Override
@@ -302,12 +319,12 @@ public class LabelBasedAccessMode implements AccessMode {
 
     @Override
     public PermissionState allowsLoadUri(URI uri, InetAddress inetAddress) {
-        return PermissionState.DENIED;
+        return PermissionState.EXPLICIT_DENY;
     }
 
     @Override
     public PermissionState allowsLoadAllData() {
-        return PermissionState.DENIED;
+        return PermissionState.EXPLICIT_DENY;
     }
 
     @Override
