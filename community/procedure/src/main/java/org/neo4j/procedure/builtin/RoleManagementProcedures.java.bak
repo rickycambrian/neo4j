@@ -1,0 +1,240 @@
+/*
+ * Copyright (c) "Neo4j"
+ * Neo4j Sweden AB [https://neo4j.com]
+ *
+ * This file is part of Neo4j.
+ *
+ * Neo4j is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+package org.neo4j.procedure.builtin;
+
+import java.util.stream.Stream;
+import org.neo4j.graphdb.security.AuthorizationViolationException;
+import org.neo4j.internal.kernel.api.security.SecurityContext;
+import org.neo4j.kernel.api.procedure.SystemProcedure;
+import org.neo4j.kernel.impl.security.Privilege;
+import org.neo4j.procedure.Admin;
+import org.neo4j.procedure.Context;
+import org.neo4j.procedure.Description;
+import org.neo4j.procedure.Name;
+import org.neo4j.procedure.Procedure;
+import org.neo4j.server.security.systemgraph.SecurityGraphHelper;
+
+/**
+ * Procedures for Role-Based Access Control management.
+ */
+public class RoleManagementProcedures {
+
+    @Context
+    public SecurityContext securityContext;
+
+    @Context
+    public SecurityGraphHelper securityGraphHelper;
+
+    // Role management procedures
+
+    @Admin
+    @SystemProcedure
+    @Procedure(name = "dbms.security.createRole")
+    @Description("Create a new role")
+    public void createRole(@Name("roleName") String roleName) {
+        checkRoleManagementAccess();
+        securityGraphHelper.createRole(roleName);
+    }
+
+    @Admin
+    @SystemProcedure
+    @Procedure(name = "dbms.security.deleteRole")
+    @Description("Delete an existing role")
+    public void deleteRole(@Name("roleName") String roleName) {
+        checkRoleManagementAccess();
+        securityGraphHelper.deleteRole(roleName);
+    }
+
+    @Admin
+    @SystemProcedure
+    @Procedure(name = "dbms.security.listRoles")
+    @Description("List all roles")
+    public Stream<RoleResult> listRoles() {
+        checkRoleManagementAccess();
+        return securityGraphHelper.getAllRoles().stream().map(role -> new RoleResult(role.name()));
+    }
+
+    @Admin
+    @SystemProcedure
+    @Procedure(name = "dbms.security.grantRolesToUser")
+    @Description("Grant roles to a user")
+    public void grantRolesToUser(@Name("username") String username, @Name("roles") String... roles) {
+        checkRoleManagementAccess();
+        for (String role : roles) {
+            securityGraphHelper.assignRoleToUser(username, role);
+        }
+    }
+
+    @Admin
+    @SystemProcedure
+    @Procedure(name = "dbms.security.revokeRolesFromUser")
+    @Description("Revoke roles from a user")
+    public void revokeRolesFromUser(@Name("username") String username, @Name("roles") String... roles) {
+        checkRoleManagementAccess();
+        for (String role : roles) {
+            securityGraphHelper.removeRoleFromUser(username, role);
+        }
+    }
+
+    // Privilege management procedures
+
+    @Admin
+    @SystemProcedure
+    @Procedure(name = "dbms.security.grantPrivilege")
+    @Description("Grant a privilege to a role")
+    public void grantPrivilege(
+            @Name("privilege") String privilegeAction,
+            @Name("resource") String resource,
+            @Name("role") String roleName) {
+        checkPrivilegeManagementAccess();
+
+        // Parse privilege action
+        Privilege.PrivilegeAction action = Privilege.PrivilegeAction.valueOf(privilegeAction);
+
+        // Create privilege resource (simplified - in real implementation would parse resource string)
+        Privilege.PrivilegeResource privResource = new Privilege.PrivilegeResource(resource);
+
+        // Create privilege
+        Privilege privilege = new Privilege(
+                action,
+                Privilege.PrivilegeScope.GRAPH,
+                privResource,
+                true, // granted
+                false // not immutable
+                );
+
+        // Grant to role (would need to implement this in SecurityGraphHelper)
+        // securityGraphHelper.grantPrivilege(roleName, privilege);
+    }
+
+    @Admin
+    @SystemProcedure
+    @Procedure(name = "dbms.security.denyPrivilege")
+    @Description("Deny a privilege to a role")
+    public void denyPrivilege(
+            @Name("privilege") String privilegeAction,
+            @Name("resource") String resource,
+            @Name("role") String roleName) {
+        checkPrivilegeManagementAccess();
+
+        // Similar to grantPrivilege but with granted=false
+        Privilege.PrivilegeAction action = Privilege.PrivilegeAction.valueOf(privilegeAction);
+        Privilege.PrivilegeResource privResource = new Privilege.PrivilegeResource(resource);
+
+        Privilege privilege = new Privilege(
+                action,
+                Privilege.PrivilegeScope.GRAPH,
+                privResource,
+                false, // denied
+                false // not immutable
+                );
+
+        // Deny to role (would need to implement this in SecurityGraphHelper)
+        // securityGraphHelper.denyPrivilege(roleName, privilege);
+    }
+
+    @Admin
+    @SystemProcedure
+    @Procedure(name = "dbms.security.revokePrivilege")
+    @Description("Revoke a privilege from a role")
+    public void revokePrivilege(
+            @Name("privilege") String privilegeAction,
+            @Name("resource") String resource,
+            @Name("role") String roleName) {
+        checkPrivilegeManagementAccess();
+
+        // Parse and revoke privilege
+        Privilege.PrivilegeAction action = Privilege.PrivilegeAction.valueOf(privilegeAction);
+        Privilege.PrivilegeResource privResource = new Privilege.PrivilegeResource(resource);
+
+        Privilege privilege = new Privilege(
+                action,
+                Privilege.PrivilegeScope.GRAPH,
+                privResource,
+                true, // doesn't matter for revoke
+                false // not immutable
+                );
+
+        // Revoke from role (would need to implement this in SecurityGraphHelper)
+        // securityGraphHelper.revokePrivilege(roleName, privilege);
+    }
+
+    @Admin
+    @SystemProcedure
+    @Procedure(name = "dbms.security.showPrivileges")
+    @Description("Show all privileges")
+    public Stream<PrivilegeResult> showPrivileges() {
+        checkPrivilegeManagementAccess();
+
+        // This would need to be implemented to return all privileges from all roles
+        return Stream.empty();
+    }
+
+    // Helper methods
+
+    private void checkRoleManagementAccess() {
+        if (!hasRoleManagementPrivilege()) {
+            throw new AuthorizationViolationException("Role management operations require ROLE_MANAGEMENT privilege");
+        }
+    }
+
+    private void checkPrivilegeManagementAccess() {
+        if (!hasPrivilegeManagementPrivilege()) {
+            throw new AuthorizationViolationException(
+                    "Privilege management operations require PRIVILEGE_MANAGEMENT privilege");
+        }
+    }
+
+    private boolean hasRoleManagementPrivilege() {
+        // In a full implementation, this would check the current user's privileges
+        // For now, allow if user has admin access
+        return securityContext.mode().allowsSchemaWrites();
+    }
+
+    private boolean hasPrivilegeManagementPrivilege() {
+        // In a full implementation, this would check the current user's privileges
+        // For now, allow if user has admin access
+        return securityContext.mode().allowsSchemaWrites();
+    }
+
+    // Result classes
+
+    public static class RoleResult {
+        public final String role;
+
+        public RoleResult(String role) {
+            this.role = role;
+        }
+    }
+
+    public static class PrivilegeResult {
+        public final String access;
+        public final String action;
+        public final String resource;
+        public final String role;
+
+        public PrivilegeResult(String access, String action, String resource, String role) {
+            this.access = access;
+            this.action = action;
+            this.resource = resource;
+            this.role = role;
+        }
+    }
+}

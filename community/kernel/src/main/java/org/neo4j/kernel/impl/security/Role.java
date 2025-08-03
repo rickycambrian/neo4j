@@ -25,23 +25,20 @@ import java.util.Set;
  * Represents a role in the RBAC system.
  * A role persisted in the system graph will always have an id.
  */
-public record Role(
-        String name,
-        String id,
-        Set<Privilege> privileges) {
-    
+public record Role(String name, String id, Set<Privilege> privileges) {
+
     public static final String ROLE_LABEL = "Role";
     public static final String ROLE_NAME = "name";
     public static final String ROLE_ID = "id";
-    
+
     public Role(String name, String id) {
         this(name, id, Set.of());
     }
-    
+
     public boolean hasPrivilege(Privilege privilege) {
         return privileges.contains(privilege);
     }
-    
+
     public boolean hasAnyPrivilege(Set<Privilege> requiredPrivileges) {
         return privileges.stream().anyMatch(requiredPrivileges::contains);
     }

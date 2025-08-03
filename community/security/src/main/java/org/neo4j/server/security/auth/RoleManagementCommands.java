@@ -17,9 +17,8 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-package org.neo4j.cypher.internal;
+package org.neo4j.server.security.auth;
 
-import java.util.Map;
 import java.util.Set;
 import org.neo4j.kernel.impl.security.Privilege;
 import org.neo4j.server.security.systemgraph.SecurityGraphHelper;
@@ -29,39 +28,40 @@ import org.neo4j.server.security.systemgraph.SecurityGraphHelper;
  * This provides a simplified implementation of GRANT/DENY/REVOKE commands.
  */
 public class RoleManagementCommands {
-    
+
     private final SecurityGraphHelper securityGraphHelper;
-    
+
     public RoleManagementCommands(SecurityGraphHelper securityGraphHelper) {
         this.securityGraphHelper = securityGraphHelper;
     }
-    
+
     /**
      * Execute a GRANT command.
      * Example: GRANT MATCH {*} ON GRAPH * NODE * TO role
      */
     public void executeGrant(GrantCommand command) {
         Privilege privilege = createPrivilege(command.action, command.scope, command.resource, true, command.immutable);
-        
+
         for (String roleName : command.roles) {
             // This would need to be implemented in SecurityGraphHelper
             // securityGraphHelper.grantPrivilege(roleName, privilege);
         }
     }
-    
+
     /**
      * Execute a DENY command.
      * Example: DENY WRITE ON GRAPH neo4j TO role
      */
     public void executeDeny(DenyCommand command) {
-        Privilege privilege = createPrivilege(command.action, command.scope, command.resource, false, command.immutable);
-        
+        Privilege privilege =
+                createPrivilege(command.action, command.scope, command.resource, false, command.immutable);
+
         for (String roleName : command.roles) {
             // This would need to be implemented in SecurityGraphHelper
             // securityGraphHelper.denyPrivilege(roleName, privilege);
         }
     }
-    
+
     /**
      * Execute a REVOKE command.
      * Example: REVOKE GRANT WRITE ON GRAPH * FROM role
@@ -69,28 +69,29 @@ public class RoleManagementCommands {
     public void executeRevoke(RevokeCommand command) {
         // For revoke, we need to know if we're revoking a grant or deny
         boolean granted = command.revokeType == RevokeType.GRANT;
-        Privilege privilege = createPrivilege(command.action, command.scope, command.resource, granted, command.immutable);
-        
+        Privilege privilege =
+                createPrivilege(command.action, command.scope, command.resource, granted, command.immutable);
+
         for (String roleName : command.roles) {
             // This would need to be implemented in SecurityGraphHelper
             // securityGraphHelper.revokePrivilege(roleName, privilege);
         }
     }
-    
+
     /**
      * Execute a CREATE ROLE command.
      */
     public void executeCreateRole(String roleName) {
         securityGraphHelper.createRole(roleName);
     }
-    
+
     /**
      * Execute a DROP ROLE command.
      */
     public void executeDropRole(String roleName) {
         securityGraphHelper.deleteRole(roleName);
     }
-    
+
     /**
      * Execute a GRANT ROLE command.
      * Example: GRANT ROLE admin TO user
@@ -100,7 +101,7 @@ public class RoleManagementCommands {
             securityGraphHelper.assignRoleToUser(username, roleName);
         }
     }
-    
+
     /**
      * Execute a REVOKE ROLE command.
      * Example: REVOKE ROLE admin FROM user
@@ -110,25 +111,20 @@ public class RoleManagementCommands {
             securityGraphHelper.removeRoleFromUser(username, roleName);
         }
     }
-    
-    private Privilege createPrivilege(String action, String scope, ResourceSpecification resource, 
-                                     boolean granted, boolean immutable) {
+
+    private Privilege createPrivilege(
+            String action, String scope, ResourceSpecification resource, boolean granted, boolean immutable) {
         // Parse action
         Privilege.PrivilegeAction privAction = parseAction(action);
         Privilege.PrivilegeScope privScope = parseScope(scope);
-        
+
         // Create resource
         Privilege.PrivilegeResource privResource = new Privilege.PrivilegeResource(
-                resource.graph,
-                resource.labels,
-                resource.relationshipTypes,
-                resource.properties,
-                resource.pattern
-        );
-        
+                resource.graph, resource.labels, resource.relationshipTypes, resource.properties, resource.pattern);
+
         return new Privilege(privAction, privScope, privResource, granted, immutable);
     }
-    
+
     private Privilege.PrivilegeAction parseAction(String action) {
         return switch (action.toUpperCase()) {
             case "TRAVERSE" -> Privilege.PrivilegeAction.TRAVERSE;
@@ -152,7 +148,7 @@ public class RoleManagementCommands {
             default -> throw new IllegalArgumentException("Unknown privilege action: " + action);
         };
     }
-    
+
     private Privilege.PrivilegeScope parseScope(String scope) {
         return switch (scope.toUpperCase()) {
             case "GRAPH" -> Privilege.PrivilegeScope.GRAPH;
@@ -162,18 +158,18 @@ public class RoleManagementCommands {
             default -> throw new IllegalArgumentException("Unknown privilege scope: " + scope);
         };
     }
-    
+
     // Command classes
-    
+
     public static class GrantCommand {
         public final String action;
         public final String scope;
         public final ResourceSpecification resource;
         public final Set<String> roles;
         public final boolean immutable;
-        
-        public GrantCommand(String action, String scope, ResourceSpecification resource, 
-                           Set<String> roles, boolean immutable) {
+
+        public GrantCommand(
+                String action, String scope, ResourceSpecification resource, Set<String> roles, boolean immutable) {
             this.action = action;
             this.scope = scope;
             this.resource = resource;
@@ -181,48 +177,59 @@ public class RoleManagementCommands {
             this.immutable = immutable;
         }
     }
-    
+
     public static class DenyCommand extends GrantCommand {
-        public DenyCommand(String action, String scope, ResourceSpecification resource, 
-                          Set<String> roles, boolean immutable) {
+        public DenyCommand(
+                String action, String scope, ResourceSpecification resource, Set<String> roles, boolean immutable) {
             super(action, scope, resource, roles, immutable);
         }
     }
-    
+
     public static class RevokeCommand extends GrantCommand {
         public final RevokeType revokeType;
-        
-        public RevokeCommand(String action, String scope, ResourceSpecification resource, 
-                            Set<String> roles, boolean immutable, RevokeType revokeType) {
+
+        public RevokeCommand(
+                String action,
+                String scope,
+                ResourceSpecification resource,
+                Set<String> roles,
+                boolean immutable,
+                RevokeType revokeType) {
             super(action, scope, resource, roles, immutable);
             this.revokeType = revokeType;
         }
     }
-    
+
     public enum RevokeType {
-        GRANT, DENY, BOTH
+        GRANT,
+        DENY,
+        BOTH
     }
-    
+
     public static class ResourceSpecification {
         public final String graph;
         public final Set<String> labels;
         public final Set<String> relationshipTypes;
         public final Set<String> properties;
         public final String pattern;
-        
-        public ResourceSpecification(String graph, Set<String> labels, Set<String> relationshipTypes,
-                                   Set<String> properties, String pattern) {
+
+        public ResourceSpecification(
+                String graph,
+                Set<String> labels,
+                Set<String> relationshipTypes,
+                Set<String> properties,
+                String pattern) {
             this.graph = graph;
             this.labels = labels;
             this.relationshipTypes = relationshipTypes;
             this.properties = properties;
             this.pattern = pattern;
         }
-        
+
         public static ResourceSpecification allGraphs() {
             return new ResourceSpecification("*", Set.of("*"), Set.of("*"), Set.of("*"), null);
         }
-        
+
         public static ResourceSpecification specificGraph(String graph) {
             return new ResourceSpecification(graph, Set.of("*"), Set.of("*"), Set.of("*"), null);
         }

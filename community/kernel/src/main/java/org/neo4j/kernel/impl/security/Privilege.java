@@ -26,12 +26,8 @@ import java.util.Set;
  * Privileges control access to specific graph operations and resources.
  */
 public record Privilege(
-        PrivilegeAction action,
-        PrivilegeScope scope,
-        PrivilegeResource resource,
-        boolean granted,
-        boolean immutable) {
-    
+        PrivilegeAction action, PrivilegeScope scope, PrivilegeResource resource, boolean granted, boolean immutable) {
+
     public enum PrivilegeAction {
         // Graph privileges
         TRAVERSE,
@@ -43,87 +39,105 @@ public record Privilege(
         SET_LABEL,
         REMOVE_LABEL,
         SET_PROPERTY,
-        
+
         // Database privileges
         ACCESS,
         START,
         STOP,
-        
-        // Schema privileges  
+
+        // Schema privileges
         CREATE_CONSTRAINT,
         DROP_CONSTRAINT,
         CREATE_INDEX,
         DROP_INDEX,
         SHOW_INDEX,
         SHOW_CONSTRAINT,
-        
+
         // Token privileges
         CREATE_TOKEN,
-        
+
         // Procedure privileges
         EXECUTE_PROCEDURE,
         EXECUTE_FUNCTION,
         EXECUTE_BOOSTED_PROCEDURE,
         EXECUTE_BOOSTED_FUNCTION,
-        
+
         // Admin privileges
         USER_MANAGEMENT,
         ROLE_MANAGEMENT,
         DATABASE_MANAGEMENT,
         PRIVILEGE_MANAGEMENT,
         IMPERSONATE,
-        
+
         // Transaction privileges
         SHOW_TRANSACTION,
         TERMINATE_TRANSACTION
     }
-    
+
     public enum PrivilegeScope {
         GRAPH,
-        DATABASE, 
+        DATABASE,
         DBMS,
         ALL
     }
-    
+
     public static class PrivilegeResource {
         private final String graph;
         private final Set<String> labels;
         private final Set<String> relationshipTypes;
         private final Set<String> properties;
         private final String pattern;
-        
+
         public PrivilegeResource(String graph) {
             this(graph, Set.of("*"), Set.of("*"), Set.of("*"), null);
         }
-        
-        public PrivilegeResource(String graph, Set<String> labels, Set<String> relationshipTypes, 
-                                Set<String> properties, String pattern) {
+
+        public PrivilegeResource(
+                String graph,
+                Set<String> labels,
+                Set<String> relationshipTypes,
+                Set<String> properties,
+                String pattern) {
             this.graph = graph;
             this.labels = labels;
             this.relationshipTypes = relationshipTypes;
             this.properties = properties;
             this.pattern = pattern;
         }
-        
-        public String graph() { return graph; }
-        public Set<String> labels() { return labels; }
-        public Set<String> relationshipTypes() { return relationshipTypes; }
-        public Set<String> properties() { return properties; }
-        public String pattern() { return pattern; }
-        
+
+        public String graph() {
+            return graph;
+        }
+
+        public Set<String> labels() {
+            return labels;
+        }
+
+        public Set<String> relationshipTypes() {
+            return relationshipTypes;
+        }
+
+        public Set<String> properties() {
+            return properties;
+        }
+
+        public String pattern() {
+            return pattern;
+        }
+
         public boolean matchesResource(String targetGraph, String targetLabel, String targetType) {
             if (!graph.equals("*") && !graph.equals(targetGraph)) {
                 return false;
             }
-            
+
             if (targetLabel != null && !labels.contains("*") && !labels.contains(targetLabel)) {
                 return false;
             }
-            
+
             if (targetType != null && !relationshipTypes.contains("*") && !relationshipTypes.contains(targetType)) {
                 return false;
             }
-            
+
             return true;
         }
     }

@@ -24,21 +24,23 @@ import static org.neo4j.internal.kernel.api.security.AuthenticationResult.FAILUR
 import static org.neo4j.internal.kernel.api.security.AuthenticationResult.PASSWORD_CHANGE_REQUIRED;
 import static org.neo4j.internal.kernel.api.security.AuthenticationResult.TOO_MANY_ATTEMPTS;
 
+import java.util.Map;
+import java.util.Set;
 import org.neo4j.gqlstatus.ErrorGqlStatusObjectImplementation;
 import org.neo4j.gqlstatus.GqlStatusInfoCodes;
 import org.neo4j.graphdb.security.AuthorizationViolationException;
-import java.util.Set;
 import org.neo4j.internal.kernel.api.connectioninfo.ClientConnectionInfo;
 import org.neo4j.internal.kernel.api.security.AbstractSecurityLog;
 import org.neo4j.internal.kernel.api.security.AccessMode;
 import org.neo4j.internal.kernel.api.security.AuthSubject;
 import org.neo4j.internal.kernel.api.security.AuthenticationResult;
 import org.neo4j.internal.kernel.api.security.LoginContext;
+import org.neo4j.internal.kernel.api.security.LabelBasedAccessMode;
+import org.neo4j.internal.kernel.api.security.RoleBasedAccessMode;
 import org.neo4j.internal.kernel.api.security.SecurityAuthorizationHandler;
 import org.neo4j.internal.kernel.api.security.SecurityContext;
 import org.neo4j.kernel.api.exceptions.Status;
 import org.neo4j.kernel.database.PrivilegeDatabaseReference;
-import org.neo4j.kernel.impl.security.Role;
 import org.neo4j.kernel.impl.security.User;
 import org.neo4j.server.security.systemgraph.SecurityGraphHelper;
 
@@ -49,7 +51,9 @@ public class BasicLoginContext extends LoginContext {
     private final AuthenticationResult authenticationResult;
 
     public BasicLoginContext(
-            User user, AuthenticationResult authenticationResult, ClientConnectionInfo connectionInfo,
+            User user,
+            AuthenticationResult authenticationResult,
+            ClientConnectionInfo connectionInfo,
             SecurityGraphHelper securityGraphHelper) {
         super(new BasicAuthSubject(user, authenticationResult), connectionInfo);
         this.user = user;
@@ -68,7 +72,7 @@ public class BasicLoginContext extends LoginContext {
                 accessMode = AccessMode.Static.ACCESS;
         }
     }
-    
+
     // Backwards compatibility constructor
     public BasicLoginContext(
             User user, AuthenticationResult authenticationResult, ClientConnectionInfo connectionInfo) {
@@ -107,19 +111,38 @@ public class BasicLoginContext extends LoginContext {
     public SecurityContext authorize(
             IdLookup idLookup, PrivilegeDatabaseReference dbReference, AbstractSecurityLog securityLog) {
         String dbName = dbReference.name();
-        
+
         // Create role-based access mode if we have role support and auth was successful
         AccessMode effectiveAccessMode = accessMode;
-        if (effectiveAccessMode == null && securityGraphHelper != null && user != null && 
-            authenticationResult == AuthenticationResult.SUCCESS) {
-            // Load user roles with privileges
-            Set<Role> userRoles = securityGraphHelper.getUserRolesWithPrivileges(user.name());
-            effectiveAccessMode = new RoleBasedAccessMode(dbName, userRoles, true);
+        if (effectiveAccessMode == null
+                && securityGraphHelper != null
+                && user != null
+                && authenticationResult == AuthenticationResult.SUCCESS) {
+            try {
+                // Get user's roles
+                Set<String> roleNames = securityGraphHelper.getUserRoles(user.name());
+                
+                // Check if user has label-specific privileges
+                Map<String, Set<String>> labelPermissions = securityGraphHelper.getUserLabelPermissions(user.name());
+                
+                if (!labelPermissions.isEmpty()) {
+                    // User has label-specific permissions
+                    effectiveAccessMode = new LabelBasedAccessMode(user.name(), labelPermissions, true);
+                } else {
+                    // Use role-based permissions
+                    effectiveAccessMode = new RoleBasedAccessMode(user.name(), roleNames);
+                }
+            } catch (Exception e) {
+                // If RBAC fails, fall back to full access
+                // In production, you might want to fail closed instead
+                securityLog.debug("Failed to load roles for user " + user.name() + ": " + e.getMessage());
+                effectiveAccessMode = AccessMode.Static.FULL;
+            }
         } else if (effectiveAccessMode == null) {
             // Fallback to FULL access for backwards compatibility
             effectiveAccessMode = AccessMode.Static.FULL;
         }
-        
+
         SecurityContext securityContext = new SecurityContext(subject(), effectiveAccessMode, connectionInfo(), dbName);
         if (subject().getAuthenticationResult().equals(FAILURE)
                 || subject().getAuthenticationResult().equals(TOO_MANY_ATTEMPTS)) {

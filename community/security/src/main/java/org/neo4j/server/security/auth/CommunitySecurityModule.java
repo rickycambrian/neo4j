@@ -40,9 +40,9 @@ import org.neo4j.logging.internal.LogService;
 import org.neo4j.memory.MemoryTracker;
 import org.neo4j.server.security.SecureHasher;
 import org.neo4j.server.security.systemgraph.BasicSystemGraphRealm;
+import org.neo4j.server.security.systemgraph.DefaultRolesInitializer;
 import org.neo4j.server.security.systemgraph.SecurityGraphHelper;
 import org.neo4j.server.security.systemgraph.UserSecurityGraphComponent;
-import org.neo4j.procedure.builtin.RoleManagementProcedures;
 import org.neo4j.time.Clocks;
 
 public class CommunitySecurityModule extends SecurityModule {
@@ -74,26 +74,25 @@ public class CommunitySecurityModule extends SecurityModule {
         });
 
         securityGraphHelper = new SecurityGraphHelper(systemSupplier, new SecureHasher(), securityLog);
-        
-        authManager = new BasicSystemGraphRealm(
-                securityGraphHelper,
-                createAuthenticationStrategy(config));
+
+        authManager = new BasicSystemGraphRealm(securityGraphHelper, createAuthenticationStrategy(config));
 
         // Register SecurityGraphHelper as a component for dependency injection
         globalDependencies.satisfyDependency(securityGraphHelper);
-        
+
         GlobalProcedures globalProcedures = globalDependencies.resolveDependency(GlobalProcedures.class);
-        
-        registerProcedure(
-                globalProcedures,
-                debugLogProvider.getLog(getClass()),
-                AuthProcedures.class);
-                
-        // Register RBAC procedures
-        registerProcedure(
-                globalProcedures,
-                debugLogProvider.getLog(getClass()),
-                RoleManagementProcedures.class);
+
+        registerProcedure(globalProcedures, debugLogProvider.getLog(getClass()), AuthProcedures.class);
+
+        // RBAC procedures are registered in the procedure module
+
+        // Initialize default roles
+        try {
+            DefaultRolesInitializer.initializeDefaultRoles(systemSupplier.get());
+            debugLogProvider.getLog(getClass()).info("Initialized default RBAC roles");
+        } catch (Exception e) {
+            debugLogProvider.getLog(getClass()).warn("Failed to initialize default roles", e);
+        }
     }
 
     @Override

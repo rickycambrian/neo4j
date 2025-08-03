@@ -28,21 +28,23 @@ import static org.neo4j.server.security.systemgraph.versions.KnownCommunitySecur
 import static org.neo4j.server.security.systemgraph.versions.KnownCommunitySecurityComponentVersion.USER_NAME;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.neo4j.dbms.database.DatabaseContextProvider;
 import org.neo4j.function.Suppliers;
 import org.neo4j.graphdb.GraphDatabaseService;
 import org.neo4j.graphdb.Node;
 import org.neo4j.graphdb.NotFoundException;
-import org.neo4j.graphdb.Transaction;
 import org.neo4j.graphdb.security.AuthProviderFailedException;
 import org.neo4j.internal.kernel.api.security.AbstractSecurityLog;
 import org.neo4j.kernel.api.security.AuthToken;
 import org.neo4j.kernel.impl.security.Credential;
+import org.neo4j.kernel.impl.security.Privilege;
 import org.neo4j.kernel.impl.security.Role;
 import org.neo4j.kernel.impl.security.User;
-import org.neo4j.logging.InternalLog;
 import org.neo4j.logging.NullLog;
 import org.neo4j.server.security.FormatException;
 import org.neo4j.server.security.SecureHasher;
@@ -148,7 +150,7 @@ public class SecurityGraphHelper {
 
         // Load user roles
         Set<String> userRoles = roleComponent.getUserRoles(userNode);
-        
+
         User user = new User(
                 username,
                 userId,
@@ -172,9 +174,9 @@ public class SecurityGraphHelper {
     public boolean hasExternalAuth(String username) {
         return false;
     }
-    
+
     // Role management methods
-    
+
     public Set<Role> getUserRolesWithPrivileges(String username) {
         Set<Role> roles = new HashSet<>();
         try (var tx = systemSupplier.get().beginTx()) {
@@ -195,7 +197,7 @@ public class SecurityGraphHelper {
         }
         return roles;
     }
-    
+
     public void assignRoleToUser(String username, String roleName) {
         try (var tx = systemSupplier.get().beginTx()) {
             Node userNode = tx.findNode(USER_LABEL, USER_NAME, username);
@@ -207,7 +209,7 @@ public class SecurityGraphHelper {
             tx.commit();
         }
     }
-    
+
     public void removeRoleFromUser(String username, String roleName) {
         try (var tx = systemSupplier.get().beginTx()) {
             Node userNode = tx.findNode(USER_LABEL, USER_NAME, username);
@@ -217,7 +219,7 @@ public class SecurityGraphHelper {
             tx.commit();
         }
     }
-    
+
     public Role createRole(String roleName) {
         try (var tx = systemSupplier.get().beginTx()) {
             Role role = roleComponent.createRole(tx, roleName);
@@ -227,19 +229,62 @@ public class SecurityGraphHelper {
             return role;
         }
     }
-    
+
     public void deleteRole(String roleName) {
         try (var tx = systemSupplier.get().beginTx()) {
             roleComponent.deleteRole(tx, roleName);
             tx.commit();
         }
     }
-    
+
     public Set<Role> getAllRoles() {
         try (var tx = systemSupplier.get().beginTx()) {
             Set<Role> roles = roleComponent.getAllRoles(tx);
             tx.commit();
             return roles;
         }
+    }
+
+    public Set<String> getUserRoles(String username) {
+        return systemSupplier
+                .get()
+                .executeTransactionally(
+                        "MATCH (u:User {name: $username})-[:HAS_ROLE]->(r:Role) RETURN r.name as roleName",
+                        java.util.Map.of("username", username),
+                        result -> {
+                            Set<String> roles = new HashSet<>();
+                            while (result.hasNext()) {
+                                roles.add((String) result.next().get("roleName"));
+                            }
+                            return roles;
+                        });
+    }
+
+    public Map<String, Set<String>> getUserLabelPermissions(String username) {
+        return systemSupplier
+                .get()
+                .executeTransactionally(
+                        """
+                        MATCH (u:User {name: $username})-[:HAS_ROLE]->(r:Role)-[:HAS_PRIVILEGE]->(p:Privilege)
+                        WHERE p.labels IS NOT NULL
+                        RETURN p.labels as labels, collect(p.action) as actions
+                        """,
+                        java.util.Map.of("username", username),
+                        result -> {
+                            Map<String, Set<String>> labelPermissions = new HashMap<>();
+                            while (result.hasNext()) {
+                                var row = result.next();
+                                String labels = (String) row.get("labels");
+                                @SuppressWarnings("unchecked")
+                                List<String> actions = (List<String>) row.get("actions");
+                                
+                                // Split labels if they are comma-separated
+                                for (String label : labels.split(",")) {
+                                    labelPermissions.computeIfAbsent(label.trim(), k -> new HashSet<>())
+                                            .addAll(actions);
+                                }
+                            }
+                            return labelPermissions;
+                        });
     }
 }

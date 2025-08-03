@@ -19,206 +19,229 @@
  */
 package org.neo4j.procedure.builtin;
 
-import java.util.Set;
 import java.util.stream.Stream;
-import org.neo4j.graphdb.security.AuthorizationViolationException;
-import org.neo4j.internal.kernel.api.procs.ProcedureSignature;
-import org.neo4j.internal.kernel.api.security.AccessMode;
+import org.neo4j.graphdb.Transaction;
+import org.neo4j.internal.kernel.api.procs.ProcedureContext;
 import org.neo4j.internal.kernel.api.security.SecurityContext;
+import org.neo4j.kernel.api.KernelTransaction;
 import org.neo4j.kernel.api.procedure.SystemProcedure;
-import org.neo4j.kernel.impl.security.Privilege;
-import org.neo4j.kernel.impl.security.Role;
-import org.neo4j.procedure.Admin;
-import org.neo4j.procedure.Context;
-import org.neo4j.procedure.Description;
-import org.neo4j.procedure.Name;
-import org.neo4j.procedure.Procedure;
-import org.neo4j.server.security.systemgraph.SecurityGraphHelper;
+import org.neo4j.kernel.impl.coreapi.TransactionImpl;
+import org.neo4j.procedure.*;
 
-/**
- * Procedures for Role-Based Access Control management.
- */
+import static org.neo4j.procedure.Mode.DBMS;
+
+@SuppressWarnings("unused")
 public class RoleManagementProcedures {
+    
+    @Context
+    public Transaction transaction;
     
     @Context
     public SecurityContext securityContext;
     
     @Context
-    public SecurityGraphHelper securityGraphHelper;
+    public ProcedureContext procedureContext;
     
-    // Role management procedures
-    
-    @Admin
     @SystemProcedure
-    @Procedure(name = "dbms.security.createRole")
+    @Procedure(name = "dbms.security.createRole", mode = DBMS)
     @Description("Create a new role")
     public void createRole(@Name("roleName") String roleName) {
-        checkRoleManagementAccess();
-        securityGraphHelper.createRole(roleName);
+        // Check admin access
+        if (!isAdmin()) {
+            throw new RuntimeException("Admin access required");
+        }
+        
+        // Use system database transaction
+        transaction.execute("CREATE (r:Role {name: $name, id: randomUUID()})", 
+            java.util.Map.of("name", roleName));
     }
     
-    @Admin
     @SystemProcedure
-    @Procedure(name = "dbms.security.deleteRole")
-    @Description("Delete an existing role")
+    @Procedure(name = "dbms.security.deleteRole", mode = DBMS)
+    @Description("Delete a role")
     public void deleteRole(@Name("roleName") String roleName) {
-        checkRoleManagementAccess();
-        securityGraphHelper.deleteRole(roleName);
+        if (!isAdmin()) {
+            throw new RuntimeException("Admin access required");
+        }
+        
+        // Prevent deletion of system roles
+        if (isSystemRole(roleName)) {
+            throw new RuntimeException("Cannot delete system role: " + roleName);
+        }
+        
+        transaction.execute("MATCH (r:Role {name: $name}) DETACH DELETE r",
+            java.util.Map.of("name", roleName));
     }
     
-    @Admin
     @SystemProcedure
-    @Procedure(name = "dbms.security.listRoles")
+    @Procedure(name = "dbms.security.listRoles", mode = DBMS)
     @Description("List all roles")
     public Stream<RoleResult> listRoles() {
-        checkRoleManagementAccess();
-        return securityGraphHelper.getAllRoles().stream()
-                .map(role -> new RoleResult(role.name()));
+        return transaction.execute("MATCH (r:Role) RETURN r.name as role ORDER BY role")
+            .stream()
+            .map(row -> new RoleResult((String) row.get("role")));
     }
     
-    @Admin
     @SystemProcedure
-    @Procedure(name = "dbms.security.grantRolesToUser")
-    @Description("Grant roles to a user")
-    public void grantRolesToUser(@Name("username") String username, @Name("roles") String... roles) {
-        checkRoleManagementAccess();
-        for (String role : roles) {
-            securityGraphHelper.assignRoleToUser(username, role);
+    @Procedure(name = "dbms.security.grantRoleToUser", mode = DBMS)
+    @Description("Grant a role to a user")
+    public void grantRoleToUser(@Name("username") String username, @Name("roleName") String roleName) {
+        if (!isAdmin()) {
+            throw new RuntimeException("Admin access required");
         }
+        
+        transaction.execute("""
+            MATCH (u:User {name: $username})
+            MATCH (r:Role {name: $roleName})
+            MERGE (u)-[:HAS_ROLE]->(r)
+            """, java.util.Map.of("username", username, "roleName", roleName));
     }
     
-    @Admin
     @SystemProcedure
-    @Procedure(name = "dbms.security.revokeRolesFromUser")
-    @Description("Revoke roles from a user")
-    public void revokeRolesFromUser(@Name("username") String username, @Name("roles") String... roles) {
-        checkRoleManagementAccess();
-        for (String role : roles) {
-            securityGraphHelper.removeRoleFromUser(username, role);
+    @Procedure(name = "dbms.security.revokeRoleFromUser", mode = DBMS)
+    @Description("Revoke a role from a user")
+    public void revokeRoleFromUser(@Name("username") String username, @Name("roleName") String roleName) {
+        if (!isAdmin()) {
+            throw new RuntimeException("Admin access required");
         }
+        
+        transaction.execute("""
+            MATCH (u:User {name: $username})-[rel:HAS_ROLE]->(r:Role {name: $roleName})
+            DELETE rel
+            """, java.util.Map.of("username", username, "roleName", roleName));
     }
     
-    // Privilege management procedures
-    
-    @Admin
     @SystemProcedure
-    @Procedure(name = "dbms.security.grantPrivilege")
-    @Description("Grant a privilege to a role")
+    @Procedure(name = "dbms.security.listRolesForUser", mode = DBMS)
+    @Description("List roles for a user")
+    public Stream<RoleResult> listRolesForUser(@Name("username") String username) {
+        if (!isAdmin() && !username.equals(securityContext.subject().executingUser())) {
+            throw new RuntimeException("Can only view own roles");
+        }
+        
+        return transaction.execute("""
+            MATCH (u:User {name: $username})-[:HAS_ROLE]->(r:Role)
+            RETURN r.name as role ORDER BY role
+            """, java.util.Map.of("username", username))
+            .stream()
+            .map(row -> new RoleResult((String) row.get("role")));
+    }
+    
+    private boolean isAdmin() {
+        String username = securityContext.subject().executingUser();
+        // Check if user has admin role
+        var result = transaction.execute("""
+            MATCH (u:User {name: $username})-[:HAS_ROLE]->(r:Role {name: 'admin'})
+            RETURN count(r) > 0 as isAdmin
+            """, java.util.Map.of("username", username));
+        
+        return result.hasNext() && (Boolean) result.next().get("isAdmin");
+    }
+    
+    private boolean isSystemRole(String roleName) {
+        return java.util.Set.of("admin", "reader", "editor", "architect", "PUBLIC")
+            .contains(roleName);
+    }
+    
+    @SystemProcedure
+    @Procedure(name = "dbms.security.grantPrivilege", mode = DBMS)
+    @Description("Grant a privilege on specific labels to a role")
     public void grantPrivilege(
-            @Name("privilege") String privilegeAction,
-            @Name("resource") String resource,
-            @Name("role") String roleName) {
-        checkPrivilegeManagementAccess();
+            @Name("roleName") String roleName,
+            @Name("privilege") String privilege,
+            @Name("labels") java.util.List<String> labels) {
+        if (!isAdmin()) {
+            throw new RuntimeException("Admin access required");
+        }
         
-        // Parse privilege action
-        Privilege.PrivilegeAction action = Privilege.PrivilegeAction.valueOf(privilegeAction);
-        
-        // Create privilege resource (simplified - in real implementation would parse resource string)
-        Privilege.PrivilegeResource privResource = new Privilege.PrivilegeResource(resource);
-        
-        // Create privilege
-        Privilege privilege = new Privilege(
-                action,
-                Privilege.PrivilegeScope.GRAPH,
-                privResource,
-                true,  // granted
-                false  // not immutable
-        );
-        
-        // Grant to role (would need to implement this in SecurityGraphHelper)
-        // securityGraphHelper.grantPrivilege(roleName, privilege);
+        // Store privilege in system graph
+        String labelsStr = String.join(",", labels);
+        transaction.execute("""
+            MATCH (r:Role {name: $roleName})
+            MERGE (p:Privilege {
+                role: $roleName,
+                action: $privilege,
+                labels: $labels,
+                granted: true
+            })
+            MERGE (r)-[:HAS_PRIVILEGE]->(p)
+            """, java.util.Map.of(
+                "roleName", roleName,
+                "privilege", privilege,
+                "labels", labelsStr
+            ));
     }
     
-    @Admin
     @SystemProcedure
-    @Procedure(name = "dbms.security.denyPrivilege")
-    @Description("Deny a privilege to a role")
+    @Procedure(name = "dbms.security.denyPrivilege", mode = DBMS)
+    @Description("Deny a privilege on specific labels to a role")
     public void denyPrivilege(
-            @Name("privilege") String privilegeAction,
-            @Name("resource") String resource,
-            @Name("role") String roleName) {
-        checkPrivilegeManagementAccess();
+            @Name("roleName") String roleName,
+            @Name("privilege") String privilege,
+            @Name("labels") java.util.List<String> labels) {
+        if (!isAdmin()) {
+            throw new RuntimeException("Admin access required");
+        }
         
-        // Similar to grantPrivilege but with granted=false
-        Privilege.PrivilegeAction action = Privilege.PrivilegeAction.valueOf(privilegeAction);
-        Privilege.PrivilegeResource privResource = new Privilege.PrivilegeResource(resource);
-        
-        Privilege privilege = new Privilege(
-                action,
-                Privilege.PrivilegeScope.GRAPH,
-                privResource,
-                false, // denied
-                false  // not immutable
-        );
-        
-        // Deny to role (would need to implement this in SecurityGraphHelper)
-        // securityGraphHelper.denyPrivilege(roleName, privilege);
+        String labelsStr = String.join(",", labels);
+        transaction.execute("""
+            MATCH (r:Role {name: $roleName})
+            MERGE (p:Privilege {
+                role: $roleName,
+                action: $privilege,
+                labels: $labels,
+                granted: false
+            })
+            MERGE (r)-[:HAS_PRIVILEGE]->(p)
+            """, java.util.Map.of(
+                "roleName", roleName,
+                "privilege", privilege,
+                "labels", labelsStr
+            ));
     }
     
-    @Admin
     @SystemProcedure
-    @Procedure(name = "dbms.security.revokePrivilege")
-    @Description("Revoke a privilege from a role")
+    @Procedure(name = "dbms.security.revokePrivilege", mode = DBMS)
+    @Description("Revoke a privilege on specific labels from a role")
     public void revokePrivilege(
-            @Name("privilege") String privilegeAction,
-            @Name("resource") String resource,
-            @Name("role") String roleName) {
-        checkPrivilegeManagementAccess();
+            @Name("roleName") String roleName,
+            @Name("privilege") String privilege,
+            @Name("labels") java.util.List<String> labels) {
+        if (!isAdmin()) {
+            throw new RuntimeException("Admin access required");
+        }
         
-        // Parse and revoke privilege
-        Privilege.PrivilegeAction action = Privilege.PrivilegeAction.valueOf(privilegeAction);
-        Privilege.PrivilegeResource privResource = new Privilege.PrivilegeResource(resource);
-        
-        Privilege privilege = new Privilege(
-                action,
-                Privilege.PrivilegeScope.GRAPH,
-                privResource,
-                true,  // doesn't matter for revoke
-                false  // not immutable
-        );
-        
-        // Revoke from role (would need to implement this in SecurityGraphHelper)
-        // securityGraphHelper.revokePrivilege(roleName, privilege);
+        String labelsStr = String.join(",", labels);
+        transaction.execute("""
+            MATCH (r:Role {name: $roleName})-[rel:HAS_PRIVILEGE]->(p:Privilege {
+                role: $roleName,
+                action: $privilege,
+                labels: $labels
+            })
+            DELETE rel, p
+            """, java.util.Map.of(
+                "roleName", roleName,
+                "privilege", privilege,
+                "labels", labelsStr
+            ));
     }
     
-    @Admin
     @SystemProcedure
-    @Procedure(name = "dbms.security.showPrivileges")
-    @Description("Show all privileges")
-    public Stream<PrivilegeResult> showPrivileges() {
-        checkPrivilegeManagementAccess();
-        
-        // This would need to be implemented to return all privileges from all roles
-        return Stream.empty();
+    @Procedure(name = "dbms.security.listPrivileges", mode = DBMS)
+    @Description("List privileges for a role")
+    public Stream<PrivilegeResult> listPrivileges(@Name("roleName") String roleName) {
+        return transaction.execute("""
+            MATCH (r:Role {name: $roleName})-[:HAS_PRIVILEGE]->(p:Privilege)
+            RETURN p.action as action, p.labels as labels, p.granted as granted
+            ORDER BY action, labels
+            """, java.util.Map.of("roleName", roleName))
+            .stream()
+            .map(row -> new PrivilegeResult(
+                (String) row.get("action"),
+                (String) row.get("labels"),
+                (Boolean) row.get("granted")
+            ));
     }
-    
-    // Helper methods
-    
-    private void checkRoleManagementAccess() {
-        if (!hasRoleManagementPrivilege()) {
-            throw new AuthorizationViolationException("Role management operations require ROLE_MANAGEMENT privilege");
-        }
-    }
-    
-    private void checkPrivilegeManagementAccess() {
-        if (!hasPrivilegeManagementPrivilege()) {
-            throw new AuthorizationViolationException("Privilege management operations require PRIVILEGE_MANAGEMENT privilege");
-        }
-    }
-    
-    private boolean hasRoleManagementPrivilege() {
-        // In a full implementation, this would check the current user's privileges
-        // For now, allow if user has admin access
-        return securityContext.mode().allowsSchemaWrites();
-    }
-    
-    private boolean hasPrivilegeManagementPrivilege() {
-        // In a full implementation, this would check the current user's privileges
-        // For now, allow if user has admin access
-        return securityContext.mode().allowsSchemaWrites();
-    }
-    
-    // Result classes
     
     public static class RoleResult {
         public final String role;
@@ -229,16 +252,14 @@ public class RoleManagementProcedures {
     }
     
     public static class PrivilegeResult {
-        public final String access;
         public final String action;
-        public final String resource;
-        public final String role;
+        public final String labels;
+        public final boolean granted;
         
-        public PrivilegeResult(String access, String action, String resource, String role) {
-            this.access = access;
+        public PrivilegeResult(String action, String labels, boolean granted) {
             this.action = action;
-            this.resource = resource;
-            this.role = role;
+            this.labels = labels;
+            this.granted = granted;
         }
     }
 }
