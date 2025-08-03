@@ -395,6 +395,10 @@ public class DatabaseManagementServiceFactory {
                 registry.registerComponent(URLAccessChecker.class, Context::urlAccessChecker, true);
                 registry.registerComponent(ProcedureCallContext.class, Context::procedureCallContext, true);
                 registry.registerComponent(
+                        org.neo4j.server.security.systemgraph.SecurityGraphHelper.class,
+                        ctx -> ctx.dependencyResolver().resolveDependency(org.neo4j.server.security.systemgraph.SecurityGraphHelper.class),
+                        false);
+                registry.registerComponent(
                         FulltextAdapter.class,
                         ctx -> ctx.dependencyResolver().resolveDependency(FulltextAdapter.class),
                         true);

@@ -34,6 +34,9 @@ import org.neo4j.cypher.internal.administration.SetOwnPasswordExecutionPlanner
 import org.neo4j.cypher.internal.administration.ShowDatabasesExecutionPlanner
 import org.neo4j.cypher.internal.administration.ShowUsersExecutionPlanner
 import org.neo4j.cypher.internal.administration.SystemProcedureCallPlanner
+import org.neo4j.cypher.internal.runtime._
+import org.neo4j.cypher.result.RuntimeResult
+import org.neo4j.memory.MemoryTracker
 import org.neo4j.cypher.internal.ast.AdministrationAction
 import org.neo4j.cypher.internal.ast.DbmsAction
 import org.neo4j.cypher.internal.ast.StartDatabaseAction
@@ -109,6 +112,12 @@ case class CommunityAdministrationCommandRuntime(
   extraLogicalToExecutable: PartialFunction[LogicalPlan, AdministrationCommandRuntimeContext => ExecutionPlan] =
     CommunityAdministrationCommandRuntime.emptyLogicalToExecutable
 ) extends AdministrationCommandRuntime {
+  
+  // RBAC runtime for handling role-based commands
+  private lazy val rbacRuntime = new RBACAdministrationCommandRuntime(
+    normalExecutionEngine,
+    securityAuthorizationHandler
+  )
   override def name: String = "community administration-commands"
 
   private lazy val securityAuthorizationHandler =
@@ -136,7 +145,38 @@ case class CommunityAdministrationCommandRuntime(
   }
 
   // When the community commands are run within enterprise, this allows the enterprise commands to be chained
-  private def fullLogicalToExecutable = extraLogicalToExecutable orElse logicalToExecutable
+  // Also include RBAC commands
+  private def fullLogicalToExecutable = extraLogicalToExecutable orElse rbacLogicalToExecutable orElse logicalToExecutable
+  
+  // Delegate RBAC commands to the RBAC runtime
+  private def rbacLogicalToExecutable: PartialFunction[LogicalPlan, AdministrationCommandRuntimeContext => ExecutionPlan] = {
+    case plan if rbacRuntime.canExecute(plan) => context =>
+      // Create a simple execution plan that delegates to RBAC runtime
+      new ExecutionPlan {
+        override def run(ctx: QueryContext, executionMode: ExecutionMode, params: MapValue): RuntimeResult = {
+          val runtimeContext = RuntimeContext(
+            executionMode,
+            params,
+            context.runtimeContext.transactionalContext,
+            context.runtimeContext.securityContext,
+            context.runtimeContext.cypherVersion
+          )
+          
+          rbacRuntime.execute(
+            plan,
+            runtimeContext,
+            null, // runtime subscriber
+            false, // prePopulateResults
+            null, // input data stream
+            ctx.querySubscriber(),
+            ctx.memoryTracker()
+          )
+        }
+
+        override def runtimeName: String = rbacRuntime.name
+        override def metadata: Seq[Argument] = Seq.empty
+      }
+  }
 
   val checkShowUserPrivilegesText: String =
     "Try executing SHOW USER PRIVILEGES to determine the missing or denied privileges. " +
@@ -473,7 +513,7 @@ case class CommunityAdministrationCommandRuntime(
       case LogSystemCommand(source, _) => source
       case plan                        => plan
     }
-    logicalToExecutable.isDefinedAt(logicalPlan)
+    logicalToExecutable.isDefinedAt(logicalPlan) || rbacRuntime.canExecute(logicalPlan)
   }
 }
 

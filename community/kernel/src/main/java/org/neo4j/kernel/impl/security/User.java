@@ -31,12 +31,18 @@ public record User(
         SensitiveCredential credential,
         boolean passwordChangeRequired,
         boolean suspended,
-        Set<Auth> auth) {
+        Set<Auth> auth,
+        Set<String> roles) {
     public static final String PASSWORD_CHANGE_REQUIRED = "password_change_required";
     private static final Set<Auth> EMPTY_AUTH_SET = Set.of();
+    private static final Set<String> EMPTY_ROLE_SET = Set.of();
 
     public User(String name, String id, Credential credential, boolean passwordChangeRequired, boolean suspended) {
-        this(name, id, new SensitiveCredential(credential), passwordChangeRequired, suspended, EMPTY_AUTH_SET);
+        this(name, id, new SensitiveCredential(credential), passwordChangeRequired, suspended, EMPTY_AUTH_SET, EMPTY_ROLE_SET);
+    }
+
+    public User(String name, String id, SensitiveCredential credential, boolean passwordChangeRequired, boolean suspended, Set<Auth> auth) {
+        this(name, id, credential, passwordChangeRequired, suspended, auth, EMPTY_ROLE_SET);
     }
 
     public record SensitiveCredential(Credential value) {

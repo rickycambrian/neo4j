@@ -57,13 +57,13 @@ public class BasicSystemGraphRealm extends AuthManager {
 
             User user = securityGraphHelper.getUserByName(username);
             if (user == null) {
-                return new BasicLoginContext(null, AuthenticationResult.FAILURE, connectionInfo);
+                return new BasicLoginContext(null, AuthenticationResult.FAILURE, connectionInfo, securityGraphHelper);
             }
             AuthenticationResult result = authenticationStrategy.authenticate(user, password);
             if (result == AuthenticationResult.SUCCESS && user.passwordChangeRequired()) {
                 result = AuthenticationResult.PASSWORD_CHANGE_REQUIRED;
             }
-            return new BasicLoginContext(user, result, connectionInfo);
+            return new BasicLoginContext(user, result, connectionInfo, securityGraphHelper);
         } finally {
             AuthToken.clearCredentials(authToken);
         }

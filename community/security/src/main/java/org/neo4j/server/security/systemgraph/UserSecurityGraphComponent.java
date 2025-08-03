@@ -46,6 +46,7 @@ import org.neo4j.server.security.auth.UserRepository;
 import org.neo4j.server.security.systemgraph.versions.CommunitySecurityComponentVersion_3_43D4;
 import org.neo4j.server.security.systemgraph.versions.CommunitySecurityComponentVersion_4_50;
 import org.neo4j.server.security.systemgraph.versions.CommunitySecurityComponentVersion_5_521;
+import org.neo4j.server.security.systemgraph.versions.CommunitySecurityComponentVersion_5_RBAC;
 import org.neo4j.server.security.systemgraph.versions.KnownCommunitySecurityComponentVersion;
 import org.neo4j.server.security.systemgraph.versions.NoCommunitySecurityComponentVersion;
 import org.neo4j.util.VisibleForTesting;
@@ -76,10 +77,13 @@ public class UserSecurityGraphComponent extends AbstractSystemGraphComponent
                 new CommunitySecurityComponentVersion_4_50(debugLog, securityLog, initialPasswordRepo, version3);
         KnownCommunitySecurityComponentVersion version5 =
                 new CommunitySecurityComponentVersion_5_521(debugLog, securityLog, initialPasswordRepo, version4);
+        KnownCommunitySecurityComponentVersion version6 =
+                new CommunitySecurityComponentVersion_5_RBAC(debugLog, securityLog, initialPasswordRepo, version5);
 
         knownUserSecurityComponentVersions.add(version3);
         knownUserSecurityComponentVersions.add(version4);
         knownUserSecurityComponentVersions.add(version5);
+        knownUserSecurityComponentVersions.add(version6);
     }
 
     @Override

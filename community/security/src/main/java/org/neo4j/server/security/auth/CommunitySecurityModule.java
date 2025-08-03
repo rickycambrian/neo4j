@@ -42,6 +42,7 @@ import org.neo4j.server.security.SecureHasher;
 import org.neo4j.server.security.systemgraph.BasicSystemGraphRealm;
 import org.neo4j.server.security.systemgraph.SecurityGraphHelper;
 import org.neo4j.server.security.systemgraph.UserSecurityGraphComponent;
+import org.neo4j.procedure.builtin.RoleManagementProcedures;
 import org.neo4j.time.Clocks;
 
 public class CommunitySecurityModule extends SecurityModule {
@@ -50,6 +51,7 @@ public class CommunitySecurityModule extends SecurityModule {
     private final Dependencies globalDependencies;
     private final AbstractSecurityLog securityLog;
     private BasicSystemGraphRealm authManager;
+    private SecurityGraphHelper securityGraphHelper;
 
     public CommunitySecurityModule(
             LogService logService, Config config, Dependencies globalDependencies, AbstractSecurityLog securityLog) {
@@ -71,14 +73,27 @@ public class CommunitySecurityModule extends SecurityModule {
                     .databaseFacade();
         });
 
+        securityGraphHelper = new SecurityGraphHelper(systemSupplier, new SecureHasher(), securityLog);
+        
         authManager = new BasicSystemGraphRealm(
-                new SecurityGraphHelper(systemSupplier, new SecureHasher(), securityLog),
+                securityGraphHelper,
                 createAuthenticationStrategy(config));
 
+        // Register SecurityGraphHelper as a component for dependency injection
+        globalDependencies.satisfyDependency(securityGraphHelper);
+        
+        GlobalProcedures globalProcedures = globalDependencies.resolveDependency(GlobalProcedures.class);
+        
         registerProcedure(
-                globalDependencies.resolveDependency(GlobalProcedures.class),
+                globalProcedures,
                 debugLogProvider.getLog(getClass()),
                 AuthProcedures.class);
+                
+        // Register RBAC procedures
+        registerProcedure(
+                globalProcedures,
+                debugLogProvider.getLog(getClass()),
+                RoleManagementProcedures.class);
     }
 
     @Override
